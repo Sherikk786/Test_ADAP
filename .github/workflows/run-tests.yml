@@ -1,0 +1,65 @@
+name: Run Cypress Tests & Report
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Test Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Cypress Tests
+        run: npm run test:ci
+        continue-on-error: true
+
+      - name: Merge Mochawesome Reports
+        if: always()
+        run: |
+          npx mochawesome-merge "cypress/results/*.json" -o cypress/results/merged.json
+          npx marge cypress/results/merged.json \
+            --reportDir cypress/reports \
+            --inline \
+            --charts \
+            --reportTitle "Cypress Test Report"
+
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-test-report
+          path: cypress/reports/
+          retention-days: 30
+
+      - name: Show Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Cypress Test Results" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            if (!fs.existsSync('cypress/results/merged.json')) {
+              console.log('| ❌ Error | No test results found |');
+              process.exit(0);
+            }
+            const report = JSON.parse(fs.readFileSync('cypress/results/merged.json', 'utf8'));
+            const stats = report.stats;
+            console.log('| Metric | Value |');
+            console.log('|--------|-------|');
+            console.log('| ✅ Passed | ' + stats.passes + ' |');
+            console.log('| ❌ Failed | ' + stats.failures + ' |');
+            console.log('| ⏭️ Pending | ' + stats.pending + ' |');
+            console.log('| ⏱️ Duration | ' + (stats.duration/1000).toFixed(2) + 's |');
+          " >> $GITHUB_STEP_SUMMARY
